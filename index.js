@@ -22,6 +22,8 @@ const DEFAULT_REJECT_DELETE_DELAY_MS = 10000;
 const REJECT_DELETE_DELAY_MS = parsePositiveInt(process.env.REJECT_DELETE_DELAY_MS, DEFAULT_REJECT_DELETE_DELAY_MS);
 const DEFAULT_RECENTLY_LEFT_DISPLAY_MS = 10000;
 const RECENTLY_LEFT_DISPLAY_MS = parsePositiveInt(process.env.RECENTLY_LEFT_DISPLAY_MS, DEFAULT_RECENTLY_LEFT_DISPLAY_MS);
+const DEFAULT_VOICE_POLL_INTERVAL_MS = 2000;
+const VOICE_POLL_INTERVAL_MS = parsePositiveInt(process.env.VOICE_POLL_INTERVAL_MS, DEFAULT_VOICE_POLL_INTERVAL_MS);
 const ANSI_RED = '\x1b[31m';
 const ANSI_GREEN = '\x1b[32m';
 const ANSI_CYAN = '\x1b[36m';
@@ -167,6 +169,31 @@ function getRejectChannelAccessIssue(channel) {
     }
 
     return null;
+}
+
+function getRejectChannelStatus() {
+    if (!rejectChannel) {
+        return {
+            label: 'NOT_FOUND',
+            detail: `Channel ${REJECT_CHANNEL_ID} not resolved`,
+            color: ANSI_RED,
+        };
+    }
+
+    const accessIssue = getRejectChannelAccessIssue(rejectChannel);
+    if (accessIssue) {
+        return {
+            label: 'ISSUE',
+            detail: accessIssue,
+            color: ANSI_RED,
+        };
+    }
+
+    return {
+        label: 'OK',
+        detail: `${rejectChannel.name} (${rejectChannel.id})`,
+        color: ANSI_GREEN,
+    };
 }
 
 function logToConsole(content) {
@@ -404,6 +431,14 @@ function checkVoiceChannel() {
                 displayContent += `\n\n${colorize('Last Commands:', ANSI_BOLD)}\n${colorize('No commands yet', ANSI_DIM)}`;
             }
 
+            const rejectChannelStatus = getRejectChannelStatus();
+            const autoDeleteSeconds = (REJECT_DELETE_DELAY_MS / 1000).toFixed(1).replace(/\.0$/, '');
+            const pollSeconds = (VOICE_POLL_INTERVAL_MS / 1000).toFixed(1).replace(/\.0$/, '');
+            displayContent += `\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
+                rejectChannelStatus.label,
+                rejectChannelStatus.color,
+            )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s`;
+
             logToConsole(displayContent);
             
             lastDeltaEvents = deltaEvents;
@@ -415,6 +450,9 @@ function checkVoiceChannel() {
         lastVoiceUserIds = new Set();
         recentlyLeftUsers.clear();
         lastDeltaEvents = [];
+        const rejectChannelStatus = getRejectChannelStatus();
+        const autoDeleteSeconds = (REJECT_DELETE_DELAY_MS / 1000).toFixed(1).replace(/\.0$/, '');
+        const pollSeconds = (VOICE_POLL_INTERVAL_MS / 1000).toFixed(1).replace(/\.0$/, '');
         const summaryLine = `${colorize('Channel', ANSI_BOLD)}: ${colorize('Not in voice', ANSI_DIM)} | ${colorize(
             'Active',
             ANSI_BOLD,
@@ -422,7 +460,10 @@ function checkVoiceChannel() {
         const content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${summaryLine}\n\n${colorize(
             'Active Users',
             ANSI_BOLD,
-        )}\n${colorize('No voice channel connected', ANSI_DIM)}`;
+        )}\n${colorize('No voice channel connected', ANSI_DIM)}\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
+            rejectChannelStatus.label,
+            rejectChannelStatus.color,
+        )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s`;
         logToConsole(content);
     }
 }
@@ -451,6 +492,11 @@ client.on('ready', () => {
             process.env.REJECT_DELETE_DELAY_MS ? '(from REJECT_DELETE_DELAY_MS)' : '(default)'
         }`,
     );
+    console.log(
+        `Voice poll interval: ${VOICE_POLL_INTERVAL_MS}ms ${
+            process.env.VOICE_POLL_INTERVAL_MS ? '(from VOICE_POLL_INTERVAL_MS)' : '(default)'
+        }`,
+    );
 
     rejectChannel = resolveRejectChannel();
     if (rejectChannel) {
@@ -463,8 +509,8 @@ client.on('ready', () => {
         console.log('Warning: Reject channel not found. Make sure REJECT_CHANNEL_ID is correct.');
     }
     
-    // Start checking voice channel every 2 seconds
-    setInterval(checkVoiceChannel, 2000);
+    // Start checking voice channel on configured interval.
+    setInterval(checkVoiceChannel, VOICE_POLL_INTERVAL_MS);
 });
 
 client.login(process.env.DISCORD_TOKEN).catch(error => {
