@@ -40,6 +40,7 @@ const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
+rl.setPrompt('> ');
 
 function getCurrentTimestamp() {
     return new Date().toISOString();
@@ -143,9 +144,19 @@ function getRejectChannelAccessIssue(channel) {
 
 function logToConsole(content) {
     const timestamp = getCurrentTimestamp();
-    console.clear();
-    console.log(`${colorize(`[${timestamp}]`, ANSI_DIM)} ${content}`);
-    console.log(`\n${colorize('Enter a number to select a user:', ANSI_CYAN)}`);
+    const renderedOutput = `${colorize(`[${timestamp}]`, ANSI_DIM)} ${content}\n\n${colorize(
+        'Enter a number to select a user:',
+        ANSI_CYAN,
+    )}\n`;
+
+    if (process.stdout.isTTY) {
+        readline.cursorTo(process.stdout, 0, 0);
+        readline.clearScreenDown(process.stdout);
+        process.stdout.write(renderedOutput);
+        rl.prompt(true);
+    } else {
+        console.log(renderedOutput);
+    }
 }
 
 function getOrAssignUserNumber(user) {
@@ -312,8 +323,7 @@ function checkVoiceChannel() {
     if (!isInVoice) {
         lastVoiceUserIds = new Set();
         recentlyLeftUsers.clear();
-        console.clear();
-        console.log('Not currently in a voice channel');
+        logToConsole(colorize('Not currently in a voice channel', ANSI_DIM));
     }
 }
 
