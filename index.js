@@ -28,9 +28,11 @@ const ANSI_CYAN = '\x1b[36m';
 const ANSI_BOLD = '\x1b[1m';
 const ANSI_DIM = '\x1b[2m';
 const ANSI_RESET = '\x1b[0m';
+const MAX_COMMAND_HISTORY = 3;
 let lastVoiceUserIds = new Set();
 let recentlyLeftUsers = new Map(); // userId -> { number, displayName, expiresAt }
 let lastDeltaEvents = [];
+let commandHistory = [];
 let currentUserMap = new Map(); // Map to store user objects with their selection numbers
 let persistentUserMap = new Map(); // Map to store user ID to number assignments
 let numberToUserMap = new Map(); // Map to store number to user ID assignments
@@ -70,6 +72,27 @@ function pruneExpiredRecentlyLeftUsers(now = Date.now()) {
 
 function colorize(text, colorCode) {
     return `${colorCode}${text}${ANSI_RESET}`;
+}
+
+function formatTimestampForPanel(isoTimestamp) {
+    const timestampDate = new Date(isoTimestamp);
+    if (Number.isNaN(timestampDate.getTime())) {
+        return isoTimestamp;
+    }
+
+    return timestampDate.toISOString().slice(11, 19);
+}
+
+function addCommandHistory(status, text) {
+    commandHistory.unshift({
+        status,
+        text,
+        timestamp: getCurrentTimestamp(),
+    });
+
+    if (commandHistory.length > MAX_COMMAND_HISTORY) {
+        commandHistory = commandHistory.slice(0, MAX_COMMAND_HISTORY);
+    }
 }
 
 function scheduleMessageDeletion(message, delayMs = 10000) {
@@ -199,12 +222,15 @@ async function handleUserSelection(input) {
             const user = client.users.cache.get(userId);
             if (user) {
                 try {
-                    const sentMessage = await rejectChannel.send(`.v reject ${user.id}`);
+                    const commandText = `.v reject ${user.id}`;
+                    const sentMessage = await rejectChannel.send(commandText);
                     lastAction = `Sent reject command for ${user.tag}`;
+                    addCommandHistory('sent', `${commandText} (${user.tag})`);
                     console.log(`\nSent reject command for user: ${user.tag}`);
                     scheduleMessageDeletion(sentMessage, REJECT_DELETE_DELAY_MS);
                 } catch (error) {
                     if (error?.code === 50001) {
+                        addCommandHistory('failed', `.v reject ${user.id} (missing access)`);
                         lastAction = `Send failed (50001) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Access (50001) for "${rejectChannel.name}" (${rejectChannel.id})`,
@@ -215,11 +241,13 @@ async function handleUserSelection(input) {
                             console.error(`Channel access check: ${refreshedIssue}`);
                         }
                     } else if (error?.code === 50013) {
+                        addCommandHistory('failed', `.v reject ${user.id} (missing permissions)`);
                         lastAction = `Send failed (50013) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Permissions (50013) for "${rejectChannel.name}" (${rejectChannel.id})`,
                         );
                     } else {
+                        addCommandHistory('failed', `.v reject ${user.id} (${error?.message || 'unknown error'})`);
                         lastAction = `Send failed: ${error?.message || 'unknown error'}`;
                         console.error('Failed to send message:', error?.message || error);
                     }
@@ -361,6 +389,19 @@ function checkVoiceChannel() {
                 displayContent += `\n\n${colorize('Deltas (latest refresh):', ANSI_BOLD)}\n${deltaLines.join('\n')}`;
             } else {
                 displayContent += `\n\n${colorize('Deltas (latest refresh):', ANSI_BOLD)}\n${colorize('No changes', ANSI_DIM)}`;
+            }
+
+            if (commandHistory.length > 0) {
+                const historyLines = commandHistory.map(command => {
+                    const statusColor = command.status === 'sent' ? ANSI_GREEN : ANSI_RED;
+                    return `${colorize(`[${formatTimestampForPanel(command.timestamp)}]`, ANSI_DIM)} ${colorize(
+                        command.status.toUpperCase(),
+                        statusColor,
+                    )} ${command.text}`;
+                });
+                displayContent += `\n\n${colorize('Last Commands:', ANSI_BOLD)}\n${historyLines.join('\n')}`;
+            } else {
+                displayContent += `\n\n${colorize('Last Commands:', ANSI_BOLD)}\n${colorize('No commands yet', ANSI_DIM)}`;
             }
 
             logToConsole(displayContent);
