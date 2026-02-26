@@ -42,6 +42,13 @@ let nextAvailableNumber = 1; // Keep track of the next available number
 let currentVoiceChannel = null; // Store current voice channel
 let rejectChannel = null; // Store the reject command channel
 let lastAction = 'Ready';
+const sessionStartedAt = Date.now();
+const sessionStats = {
+    rejectsSent: 0,
+    rejectsFailed: 0,
+    joinEvents: 0,
+    leaveEvents: 0,
+};
 
 // Setup readline interface
 const rl = readline.createInterface({
@@ -110,6 +117,14 @@ function formatTimestampForPanel(isoTimestamp) {
     }
 
     return timestampDate.toISOString().slice(11, 19);
+}
+
+function formatDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
 }
 
 function addCommandHistory(status, text) {
@@ -293,11 +308,13 @@ async function handleUserSelection(input) {
                     const commandText = `.v reject ${user.id}`;
                     const sentMessage = await rejectChannel.send(commandText);
                     lastAction = `Sent reject command for ${user.tag}`;
+                    sessionStats.rejectsSent += 1;
                     addCommandHistory('sent', `${commandText} (${user.tag})`);
                     console.log(`\nSent reject command for user: ${user.tag}`);
                     scheduleMessageDeletion(sentMessage, REJECT_DELETE_DELAY_MS);
                 } catch (error) {
                     if (error?.code === 50001) {
+                        sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (missing access)`);
                         lastAction = `Send failed (50001) for channel ${rejectChannel.id}`;
                         console.error(
@@ -309,12 +326,14 @@ async function handleUserSelection(input) {
                             console.error(`Channel access check: ${refreshedIssue}`);
                         }
                     } else if (error?.code === 50013) {
+                        sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (missing permissions)`);
                         lastAction = `Send failed (50013) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Permissions (50013) for "${rejectChannel.name}" (${rejectChannel.id})`,
                         );
                     } else {
+                        sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (${error?.message || 'unknown error'})`);
                         lastAction = `Send failed: ${error?.message || 'unknown error'}`;
                         console.error('Failed to send message:', error?.message || error);
@@ -377,6 +396,7 @@ function checkVoiceChannel() {
                         displayName,
                         expiresAt: now + RECENTLY_LEFT_DISPLAY_MS,
                     });
+                    sessionStats.leaveEvents += 1;
                     deltaEvents.push({ type: 'left', number, displayName });
                 }
             }
@@ -385,6 +405,7 @@ function checkVoiceChannel() {
                 if (!lastVoiceUserIds.has(currentUserId)) {
                     const userDetails = currentUserDetails.get(currentUserId);
                     if (userDetails) {
+                        sessionStats.joinEvents += 1;
                         deltaEvents.push({ type: 'join', number: userDetails.number, displayName: userDetails.displayName });
                     }
                 }
@@ -423,7 +444,12 @@ function checkVoiceChannel() {
                 'Last Action',
                 ANSI_BOLD,
             )}: ${lastAction}`;
-            let displayContent = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${summaryLine}\n\n${colorize(
+            const statsLine = `${colorize('Session', ANSI_BOLD)}: up ${formatDuration(
+                Date.now() - sessionStartedAt,
+            )} | rejects sent: ${sessionStats.rejectsSent} | failed: ${sessionStats.rejectsFailed} | joins: ${
+                sessionStats.joinEvents
+            } | leaves: ${sessionStats.leaveEvents}`;
+            let displayContent = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${statsLine}\n${summaryLine}\n\n${colorize(
                 'Active Users',
                 ANSI_BOLD,
             )}\n`;
@@ -502,7 +528,12 @@ function checkVoiceChannel() {
             'Active',
             ANSI_BOLD,
         )}: 0 | ${colorize('Recently Left', ANSI_BOLD)}: 0 | ${colorize('Last Action', ANSI_BOLD)}: ${lastAction}`;
-        const content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${summaryLine}\n\n${colorize(
+        const statsLine = `${colorize('Session', ANSI_BOLD)}: up ${formatDuration(
+            Date.now() - sessionStartedAt,
+        )} | rejects sent: ${sessionStats.rejectsSent} | failed: ${sessionStats.rejectsFailed} | joins: ${
+            sessionStats.joinEvents
+        } | leaves: ${sessionStats.leaveEvents}`;
+        const content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${statsLine}\n${summaryLine}\n\n${colorize(
             'Active Users',
             ANSI_BOLD,
         )}\n${colorize('No voice channel connected', ANSI_DIM)}\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
