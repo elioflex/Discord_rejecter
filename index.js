@@ -22,6 +22,9 @@ const DEFAULT_REJECT_DELETE_DELAY_MS = 10000;
 const REJECT_DELETE_DELAY_MS = parsePositiveInt(process.env.REJECT_DELETE_DELAY_MS, DEFAULT_REJECT_DELETE_DELAY_MS);
 const RECENTLY_LEFT_DISPLAY_MS = 60000;
 const ANSI_RED = '\x1b[31m';
+const ANSI_CYAN = '\x1b[36m';
+const ANSI_BOLD = '\x1b[1m';
+const ANSI_DIM = '\x1b[2m';
 const ANSI_RESET = '\x1b[0m';
 let lastVoiceUserIds = new Set();
 let recentlyLeftUsers = new Map(); // userId -> { number, displayName, expiresAt }
@@ -58,6 +61,10 @@ function pruneExpiredRecentlyLeftUsers(now = Date.now()) {
             recentlyLeftUsers.delete(userId);
         }
     }
+}
+
+function colorize(text, colorCode) {
+    return `${colorCode}${text}${ANSI_RESET}`;
 }
 
 function scheduleMessageDeletion(message, delayMs = 10000) {
@@ -137,8 +144,8 @@ function getRejectChannelAccessIssue(channel) {
 function logToConsole(content) {
     const timestamp = getCurrentTimestamp();
     console.clear();
-    console.log(`[${timestamp}] ${content}`);
-    console.log('\nEnter a number to select a user:');
+    console.log(`${colorize(`[${timestamp}]`, ANSI_DIM)} ${content}`);
+    console.log(`\n${colorize('Enter a number to select a user:', ANSI_CYAN)}`);
 }
 
 function getOrAssignUserNumber(user) {
@@ -278,16 +285,22 @@ function checkVoiceChannel() {
             // Log voice channel info and users
             let displayContent = '';
             if (userList.length > 0) {
-                displayContent = `**Voice Channel:** ${voiceChannel.name}\n**Users:**\n${userList.join('\n')}`;
+                displayContent = `${colorize('Voice Channel:', ANSI_BOLD)} ${voiceChannel.name}\n${colorize(
+                    'Users:',
+                    ANSI_BOLD,
+                )}\n${userList.join('\n')}`;
             } else {
-                displayContent = `**Voice Channel:** ${voiceChannel.name}\n**No other users in channel**`;
+                displayContent = `${colorize('Voice Channel:', ANSI_BOLD)} ${voiceChannel.name}\n${colorize(
+                    'No other users in channel',
+                    ANSI_DIM,
+                )}`;
             }
 
             if (recentlyLeftList.length > 0) {
                 const leftLines = recentlyLeftList.map(
                     leftInfo => `${ANSI_RED}[${leftInfo.number}] ${leftInfo.displayName} (left)${ANSI_RESET}`,
                 );
-                displayContent += `\n\n**Recently Left (10s):**\n${leftLines.join('\n')}`;
+                displayContent += `\n\n${colorize('Recently Left:', ANSI_BOLD)}\n${leftLines.join('\n')}`;
             }
 
             logToConsole(displayContent);
