@@ -20,7 +20,8 @@ const DEFAULT_REJECT_CHANNEL_ID = process.env.DEFAULT_REJECT_CHANNEL_ID || HARDC
 const REJECT_CHANNEL_ID = process.env.REJECT_CHANNEL_ID || DEFAULT_REJECT_CHANNEL_ID;
 const DEFAULT_REJECT_DELETE_DELAY_MS = 10000;
 const REJECT_DELETE_DELAY_MS = parsePositiveInt(process.env.REJECT_DELETE_DELAY_MS, DEFAULT_REJECT_DELETE_DELAY_MS);
-const RECENTLY_LEFT_DISPLAY_MS = 60000;
+const DEFAULT_RECENTLY_LEFT_DISPLAY_MS = 10000;
+const RECENTLY_LEFT_DISPLAY_MS = parsePositiveInt(process.env.RECENTLY_LEFT_DISPLAY_MS, DEFAULT_RECENTLY_LEFT_DISPLAY_MS);
 const ANSI_RED = '\x1b[31m';
 const ANSI_CYAN = '\x1b[36m';
 const ANSI_BOLD = '\x1b[1m';
@@ -323,9 +324,15 @@ function checkVoiceChannel() {
 
             if (recentlyLeftList.length > 0) {
                 const leftLines = recentlyLeftList.map(
-                    leftInfo => `${ANSI_RED}[${leftInfo.number}] ${leftInfo.displayName} (left)${ANSI_RESET}`,
+                    leftInfo => {
+                        const secondsLeft = Math.max(1, Math.ceil((leftInfo.expiresAt - now) / 1000));
+                        return `${ANSI_RED}[${leftInfo.number}] ${leftInfo.displayName} (left, ${secondsLeft}s)${ANSI_RESET}`;
+                    },
                 );
-                displayContent += `\n\n${colorize('Recently Left:', ANSI_BOLD)}\n${leftLines.join('\n')}`;
+                const windowInSeconds = Math.floor(RECENTLY_LEFT_DISPLAY_MS / 1000);
+                displayContent += `\n\n${colorize(`Recently Left (${windowInSeconds}s):`, ANSI_BOLD)}\n${leftLines.join(
+                    '\n',
+                )}`;
             }
 
             logToConsole(displayContent);
