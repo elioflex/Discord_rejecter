@@ -34,6 +34,7 @@ let numberToUserMap = new Map(); // Map to store number to user ID assignments
 let nextAvailableNumber = 1; // Keep track of the next available number
 let currentVoiceChannel = null; // Store current voice channel
 let rejectChannel = null; // Store the reject command channel
+let lastAction = 'Ready';
 
 // Setup readline interface
 const rl = readline.createInterface({
@@ -175,6 +176,7 @@ function getOrAssignUserNumber(user) {
 async function handleUserSelection(input) {
     const number = parseInt(input, 10);
     if (Number.isNaN(number)) {
+        lastAction = 'Invalid selection';
         console.log('\nInvalid input. Enter a number from the list.');
         return;
     }
@@ -182,6 +184,7 @@ async function handleUserSelection(input) {
     if (currentVoiceChannel && rejectChannel) {
         const accessIssue = getRejectChannelAccessIssue(rejectChannel);
         if (accessIssue) {
+            lastAction = `Reject channel access issue: ${accessIssue}`;
             console.log(`\nCannot send reject command: ${accessIssue}`);
             console.log('Tip: verify channel permissions or update REJECT_CHANNEL_ID.');
             return;
@@ -194,10 +197,12 @@ async function handleUserSelection(input) {
             if (user) {
                 try {
                     const sentMessage = await rejectChannel.send(`.v reject ${user.id}`);
+                    lastAction = `Sent reject command for ${user.tag}`;
                     console.log(`\nSent reject command for user: ${user.tag}`);
                     scheduleMessageDeletion(sentMessage, REJECT_DELETE_DELAY_MS);
                 } catch (error) {
                     if (error?.code === 50001) {
+                        lastAction = `Send failed (50001) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Access (50001) for "${rejectChannel.name}" (${rejectChannel.id})`,
                         );
@@ -207,22 +212,27 @@ async function handleUserSelection(input) {
                             console.error(`Channel access check: ${refreshedIssue}`);
                         }
                     } else if (error?.code === 50013) {
+                        lastAction = `Send failed (50013) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Permissions (50013) for "${rejectChannel.name}" (${rejectChannel.id})`,
                         );
                     } else {
+                        lastAction = `Send failed: ${error?.message || 'unknown error'}`;
                         console.error('Failed to send message:', error?.message || error);
                     }
                 }
             } else {
+                lastAction = 'Selected user not available in cache';
                 console.log('\nSelected user is not in cache anymore. Wait for the list to refresh and retry.');
             }
         } else {
+            lastAction = `No user mapped to selection ${number}`;
             console.log('\nNo user is currently mapped to that number.');
         }
     } else if (!rejectChannel) {
         rejectChannel = resolveRejectChannel();
         const accessIssue = getRejectChannelAccessIssue(rejectChannel);
+        lastAction = accessIssue || 'Reject channel could not be resolved';
         console.log(`\nError: ${accessIssue || 'Reject channel could not be resolved.'}`);
         console.log('Tip: set REJECT_CHANNEL_ID in .env and restart.');
     }
@@ -293,18 +303,22 @@ function checkVoiceChannel() {
                 return numA - numB;
             });
 
-            // Log voice channel info and users
-            let displayContent = '';
+            // Log voice channel info and users in a fixed layout.
+            const summaryLine = `${colorize('Channel', ANSI_BOLD)}: ${voiceChannel.name} | ${colorize(
+                'Active',
+                ANSI_BOLD,
+            )}: ${userList.length} | ${colorize('Recently Left', ANSI_BOLD)}: ${recentlyLeftList.length} | ${colorize(
+                'Last Action',
+                ANSI_BOLD,
+            )}: ${lastAction}`;
+            let displayContent = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${summaryLine}\n\n${colorize(
+                'Active Users',
+                ANSI_BOLD,
+            )}\n`;
             if (userList.length > 0) {
-                displayContent = `${colorize('Voice Channel:', ANSI_BOLD)} ${voiceChannel.name}\n${colorize(
-                    'Users:',
-                    ANSI_BOLD,
-                )}\n${userList.join('\n')}`;
+                displayContent += userList.join('\n');
             } else {
-                displayContent = `${colorize('Voice Channel:', ANSI_BOLD)} ${voiceChannel.name}\n${colorize(
-                    'No other users in channel',
-                    ANSI_DIM,
-                )}`;
+                displayContent += colorize('No other users in channel', ANSI_DIM);
             }
 
             if (recentlyLeftList.length > 0) {
@@ -323,7 +337,15 @@ function checkVoiceChannel() {
     if (!isInVoice) {
         lastVoiceUserIds = new Set();
         recentlyLeftUsers.clear();
-        logToConsole(colorize('Not currently in a voice channel', ANSI_DIM));
+        const summaryLine = `${colorize('Channel', ANSI_BOLD)}: ${colorize('Not in voice', ANSI_DIM)} | ${colorize(
+            'Active',
+            ANSI_BOLD,
+        )}: 0 | ${colorize('Recently Left', ANSI_BOLD)}: 0 | ${colorize('Last Action', ANSI_BOLD)}: ${lastAction}`;
+        const content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${summaryLine}\n\n${colorize(
+            'Active Users',
+            ANSI_BOLD,
+        )}\n${colorize('No voice channel connected', ANSI_DIM)}`;
+        logToConsole(content);
     }
 }
 
