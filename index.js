@@ -48,7 +48,7 @@ const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
-rl.setPrompt('> ');
+rl.setPrompt('Selection> ');
 
 function getCurrentTimestamp() {
     return new Date().toISOString();
@@ -227,7 +227,21 @@ function getOrAssignUserNumber(user) {
 }
 
 async function handleUserSelection(input) {
-    const number = parseInt(input, 10);
+    const trimmedInput = input.trim();
+    if (trimmedInput.toLowerCase() === 'q') {
+        lastAction = 'Quit requested';
+        console.log('\nShutting down...');
+        rl.close();
+        process.exit(0);
+    }
+
+    if (trimmedInput.toLowerCase() === 'r') {
+        lastAction = 'Manual refresh requested';
+        checkVoiceChannel();
+        return;
+    }
+
+    const number = parseInt(trimmedInput, 10);
     if (Number.isNaN(number)) {
         lastAction = 'Invalid selection';
         console.log('\nInvalid input. Enter a number from the list.');
@@ -438,6 +452,10 @@ function checkVoiceChannel() {
                 rejectChannelStatus.label,
                 rejectChannelStatus.color,
             )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s`;
+            displayContent += `\n\n${colorize('Keys:', ANSI_BOLD)} ${colorize(
+                '[number]=reject | r=refresh | q=quit',
+                ANSI_DIM,
+            )}`;
 
             logToConsole(displayContent);
             
@@ -463,7 +481,10 @@ function checkVoiceChannel() {
         )}\n${colorize('No voice channel connected', ANSI_DIM)}\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
             rejectChannelStatus.label,
             rejectChannelStatus.color,
-        )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s`;
+        )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s\n\n${colorize(
+            'Keys:',
+            ANSI_BOLD,
+        )} ${colorize('[number]=reject | r=refresh | q=quit', ANSI_DIM)}`;
         logToConsole(content);
     }
 }
