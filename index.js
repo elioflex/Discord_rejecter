@@ -76,6 +76,33 @@ function colorize(text, colorCode) {
     return `${colorCode}${text}${ANSI_RESET}`;
 }
 
+function getVoiceStateBadges(voiceState) {
+    if (!voiceState) return '';
+
+    const badges = [];
+    if (voiceState.mute || voiceState.selfMute || voiceState.serverMute) {
+        badges.push('muted');
+    }
+    if (voiceState.deaf || voiceState.selfDeaf || voiceState.serverDeaf) {
+        badges.push('deafened');
+    }
+    if (voiceState.selfVideo) {
+        badges.push('video');
+    }
+    if (voiceState.streaming) {
+        badges.push('stream');
+    }
+    if (voiceState.suppress) {
+        badges.push('suppressed');
+    }
+
+    if (badges.length === 0) {
+        return '';
+    }
+
+    return ` ${colorize(badges.map(badge => `[${badge}]`).join(''), ANSI_DIM)}`;
+}
+
 function formatTimestampForPanel(isoTimestamp) {
     const timestampDate = new Date(isoTimestamp);
     if (Number.isNaN(timestampDate.getTime())) {
@@ -336,7 +363,7 @@ function checkVoiceChannel() {
                     currentUserMap.set(userNumber, member.user);
                     const displayName = member.displayName || member.user.username;
                     currentUserDetails.set(member.user.id, { number: userNumber, displayName });
-                    userList.push(`[${userNumber}] ${displayName}`);
+                    userList.push(`[${userNumber}] ${displayName}${getVoiceStateBadges(member.voice)}`);
                 }
             });
 
