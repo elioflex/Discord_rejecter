@@ -31,10 +31,12 @@ const ANSI_BOLD = '\x1b[1m';
 const ANSI_DIM = '\x1b[2m';
 const ANSI_RESET = '\x1b[0m';
 const MAX_COMMAND_HISTORY = 3;
+const MAX_TIMELINE_EVENTS = 10;
 let lastVoiceUserIds = new Set();
 let recentlyLeftUsers = new Map(); // userId -> { number, displayName, expiresAt }
 let lastDeltaEvents = [];
 let commandHistory = [];
+let timelineEvents = [];
 let currentUserMap = new Map(); // Map to store user objects with their selection numbers
 let persistentUserMap = new Map(); // Map to store user ID to number assignments
 let numberToUserMap = new Map(); // Map to store number to user ID assignments
@@ -137,6 +139,30 @@ function addCommandHistory(status, text) {
     if (commandHistory.length > MAX_COMMAND_HISTORY) {
         commandHistory = commandHistory.slice(0, MAX_COMMAND_HISTORY);
     }
+}
+
+function addTimelineEvent(type, text) {
+    timelineEvents.unshift({
+        type,
+        text,
+        timestamp: getCurrentTimestamp(),
+    });
+
+    if (timelineEvents.length > MAX_TIMELINE_EVENTS) {
+        timelineEvents = timelineEvents.slice(0, MAX_TIMELINE_EVENTS);
+    }
+}
+
+function getTimelineColor(type) {
+    if (type === 'join' || type === 'sent') {
+        return ANSI_GREEN;
+    }
+
+    if (type === 'left' || type === 'failed') {
+        return ANSI_RED;
+    }
+
+    return ANSI_CYAN;
 }
 
 function scheduleMessageDeletion(message, delayMs = 10000) {
@@ -310,12 +336,14 @@ async function handleUserSelection(input) {
                     lastAction = `Sent reject command for ${user.tag}`;
                     sessionStats.rejectsSent += 1;
                     addCommandHistory('sent', `${commandText} (${user.tag})`);
+                    addTimelineEvent('sent', `${commandText} (${user.tag})`);
                     console.log(`\nSent reject command for user: ${user.tag}`);
                     scheduleMessageDeletion(sentMessage, REJECT_DELETE_DELAY_MS);
                 } catch (error) {
                     if (error?.code === 50001) {
                         sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (missing access)`);
+                        addTimelineEvent('failed', `.v reject ${user.id} failed (50001 missing access)`);
                         lastAction = `Send failed (50001) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Access (50001) for "${rejectChannel.name}" (${rejectChannel.id})`,
@@ -328,6 +356,7 @@ async function handleUserSelection(input) {
                     } else if (error?.code === 50013) {
                         sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (missing permissions)`);
+                        addTimelineEvent('failed', `.v reject ${user.id} failed (50013 missing permissions)`);
                         lastAction = `Send failed (50013) for channel ${rejectChannel.id}`;
                         console.error(
                             `Failed to send message: Missing Permissions (50013) for "${rejectChannel.name}" (${rejectChannel.id})`,
@@ -335,6 +364,7 @@ async function handleUserSelection(input) {
                     } else {
                         sessionStats.rejectsFailed += 1;
                         addCommandHistory('failed', `.v reject ${user.id} (${error?.message || 'unknown error'})`);
+                        addTimelineEvent('failed', `.v reject ${user.id} failed (${error?.message || 'unknown error'})`);
                         lastAction = `Send failed: ${error?.message || 'unknown error'}`;
                         console.error('Failed to send message:', error?.message || error);
                     }
@@ -397,6 +427,7 @@ function checkVoiceChannel() {
                         expiresAt: now + RECENTLY_LEFT_DISPLAY_MS,
                     });
                     sessionStats.leaveEvents += 1;
+                    addTimelineEvent('left', `[${number}] ${displayName} left`);
                     deltaEvents.push({ type: 'left', number, displayName });
                 }
             }
@@ -406,6 +437,7 @@ function checkVoiceChannel() {
                     const userDetails = currentUserDetails.get(currentUserId);
                     if (userDetails) {
                         sessionStats.joinEvents += 1;
+                        addTimelineEvent('join', `[${userDetails.number}] ${userDetails.displayName} joined`);
                         deltaEvents.push({ type: 'join', number: userDetails.number, displayName: userDetails.displayName });
                     }
                 }
@@ -485,6 +517,21 @@ function checkVoiceChannel() {
                 displayContent += `\n\n${colorize('Deltas (latest refresh):', ANSI_BOLD)}\n${colorize('No changes', ANSI_DIM)}`;
             }
 
+            if (timelineEvents.length > 0) {
+                const timelineLines = timelineEvents.map(event => {
+                    const eventLabel = colorize(event.type.toUpperCase(), getTimelineColor(event.type));
+                    return `${colorize(`[${formatTimestampForPanel(event.timestamp)}]`, ANSI_DIM)} ${eventLabel} ${event.text}`;
+                });
+                displayContent += `\n\n${colorize(`Event Timeline (last ${MAX_TIMELINE_EVENTS}):`, ANSI_BOLD)}\n${timelineLines.join(
+                    '\n',
+                )}`;
+            } else {
+                displayContent += `\n\n${colorize(`Event Timeline (last ${MAX_TIMELINE_EVENTS}):`, ANSI_BOLD)}\n${colorize(
+                    'No events yet',
+                    ANSI_DIM,
+                )}`;
+            }
+
             if (commandHistory.length > 0) {
                 const historyLines = commandHistory.map(command => {
                     const statusColor = command.status === 'sent' ? ANSI_GREEN : ANSI_RED;
@@ -533,10 +580,23 @@ function checkVoiceChannel() {
         )} | rejects sent: ${sessionStats.rejectsSent} | failed: ${sessionStats.rejectsFailed} | joins: ${
             sessionStats.joinEvents
         } | leaves: ${sessionStats.leaveEvents}`;
-        const content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${statsLine}\n${summaryLine}\n\n${colorize(
+        let content = `${colorize('Discord Rejecter Dashboard', ANSI_CYAN)}\n${statsLine}\n${summaryLine}\n\n${colorize(
             'Active Users',
             ANSI_BOLD,
-        )}\n${colorize('No voice channel connected', ANSI_DIM)}\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
+        )}\n${colorize('No voice channel connected', ANSI_DIM)}`;
+        if (timelineEvents.length > 0) {
+            const timelineLines = timelineEvents.map(event => {
+                const eventLabel = colorize(event.type.toUpperCase(), getTimelineColor(event.type));
+                return `${colorize(`[${formatTimestampForPanel(event.timestamp)}]`, ANSI_DIM)} ${eventLabel} ${event.text}`;
+            });
+            content += `\n\n${colorize(`Event Timeline (last ${MAX_TIMELINE_EVENTS}):`, ANSI_BOLD)}\n${timelineLines.join('\n')}`;
+        } else {
+            content += `\n\n${colorize(`Event Timeline (last ${MAX_TIMELINE_EVENTS}):`, ANSI_BOLD)}\n${colorize(
+                'No events yet',
+                ANSI_DIM,
+            )}`;
+        }
+        content += `\n\n${colorize('Status:', ANSI_BOLD)}\nReject channel: ${colorize(
             rejectChannelStatus.label,
             rejectChannelStatus.color,
         )} (${rejectChannelStatus.detail})\nAuto-delete: ${autoDeleteSeconds}s | Poll: ${pollSeconds}s\n\n${colorize(
