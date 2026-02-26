@@ -23,12 +23,14 @@ const REJECT_DELETE_DELAY_MS = parsePositiveInt(process.env.REJECT_DELETE_DELAY_
 const DEFAULT_RECENTLY_LEFT_DISPLAY_MS = 10000;
 const RECENTLY_LEFT_DISPLAY_MS = parsePositiveInt(process.env.RECENTLY_LEFT_DISPLAY_MS, DEFAULT_RECENTLY_LEFT_DISPLAY_MS);
 const ANSI_RED = '\x1b[31m';
+const ANSI_GREEN = '\x1b[32m';
 const ANSI_CYAN = '\x1b[36m';
 const ANSI_BOLD = '\x1b[1m';
 const ANSI_DIM = '\x1b[2m';
 const ANSI_RESET = '\x1b[0m';
 let lastVoiceUserIds = new Set();
 let recentlyLeftUsers = new Map(); // userId -> { number, displayName, expiresAt }
+let lastDeltaEvents = [];
 let currentUserMap = new Map(); // Map to store user objects with their selection numbers
 let persistentUserMap = new Map(); // Map to store user ID to number assignments
 let numberToUserMap = new Map(); // Map to store number to user ID assignments
@@ -253,7 +255,9 @@ function checkVoiceChannel() {
             const voiceChannel = member.voice.channel;
             currentVoiceChannel = voiceChannel;
             const currentUserIds = new Set();
+            const currentUserDetails = new Map();
             let userList = [];
+            const deltaEvents = [];
             
             // Get all users in the voice channel except yourself
             voiceChannel.members.forEach(member => {
@@ -262,6 +266,7 @@ function checkVoiceChannel() {
                     currentUserIds.add(member.user.id);
                     currentUserMap.set(userNumber, member.user);
                     const displayName = member.displayName || member.user.username;
+                    currentUserDetails.set(member.user.id, { number: userNumber, displayName });
                     userList.push(`[${userNumber}] ${displayName}`);
                 }
             });
@@ -276,6 +281,16 @@ function checkVoiceChannel() {
                         displayName,
                         expiresAt: now + RECENTLY_LEFT_DISPLAY_MS,
                     });
+                    deltaEvents.push({ type: 'left', number, displayName });
+                }
+            }
+
+            for (const currentUserId of currentUserIds) {
+                if (!lastVoiceUserIds.has(currentUserId)) {
+                    const userDetails = currentUserDetails.get(currentUserId);
+                    if (userDetails) {
+                        deltaEvents.push({ type: 'join', number: userDetails.number, displayName: userDetails.displayName });
+                    }
                 }
             }
 
@@ -335,8 +350,22 @@ function checkVoiceChannel() {
                 )}`;
             }
 
+            if (deltaEvents.length > 0) {
+                const deltaLines = deltaEvents.map(deltaEvent => {
+                    if (deltaEvent.type === 'join') {
+                        return colorize(`+ [${deltaEvent.number}] ${deltaEvent.displayName} joined`, ANSI_GREEN);
+                    }
+
+                    return colorize(`- [${deltaEvent.number}] ${deltaEvent.displayName} left`, ANSI_RED);
+                });
+                displayContent += `\n\n${colorize('Deltas (latest refresh):', ANSI_BOLD)}\n${deltaLines.join('\n')}`;
+            } else {
+                displayContent += `\n\n${colorize('Deltas (latest refresh):', ANSI_BOLD)}\n${colorize('No changes', ANSI_DIM)}`;
+            }
+
             logToConsole(displayContent);
             
+            lastDeltaEvents = deltaEvents;
             lastVoiceUserIds = currentUserIds;
         }
     }
@@ -344,6 +373,7 @@ function checkVoiceChannel() {
     if (!isInVoice) {
         lastVoiceUserIds = new Set();
         recentlyLeftUsers.clear();
+        lastDeltaEvents = [];
         const summaryLine = `${colorize('Channel', ANSI_BOLD)}: ${colorize('Not in voice', ANSI_DIM)} | ${colorize(
             'Active',
             ANSI_BOLD,
