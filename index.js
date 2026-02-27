@@ -63,14 +63,17 @@ function getCurrentTimestamp() {
     return new Date().toISOString();
 }
 
-function getDisplayNameFromGuild(guild, userId) {
+function getUserIdentityLabelFromGuild(guild, userId) {
     const guildMember = guild?.members?.cache?.get(userId);
     if (guildMember) {
-        return guildMember.displayName || guildMember.user.username;
+        const accountName = guildMember.user.username || guildMember.user.tag || userId;
+        const serverName = guildMember.displayName || accountName;
+        return `${accountName} / ${serverName}`;
     }
 
     const user = client.users.cache.get(userId);
-    return user?.username || user?.tag || userId;
+    const accountName = user?.username || user?.tag || userId;
+    return `${accountName} / ${accountName}`;
 }
 
 function pruneExpiredRecentlyLeftUsers(now = Date.now()) {
@@ -410,9 +413,11 @@ function checkVoiceChannel() {
                     const userNumber = getOrAssignUserNumber(member.user);
                     currentUserIds.add(member.user.id);
                     currentUserMap.set(userNumber, member.user);
-                    const displayName = member.displayName || member.user.username;
-                    currentUserDetails.set(member.user.id, { number: userNumber, displayName });
-                    userList.push(`[${userNumber}] ${displayName}${getVoiceStateBadges(member.voice)}`);
+                    const accountName = member.user.username || member.user.tag || member.user.id;
+                    const serverName = member.displayName || accountName;
+                    const identityLabel = `${accountName} / ${serverName}`;
+                    currentUserDetails.set(member.user.id, { number: userNumber, identityLabel });
+                    userList.push(`[${userNumber}] ${identityLabel}${getVoiceStateBadges(member.voice)}`);
                 }
             });
 
@@ -420,7 +425,7 @@ function checkVoiceChannel() {
             for (const previousUserId of lastVoiceUserIds) {
                 if (!currentUserIds.has(previousUserId)) {
                     const number = persistentUserMap.get(previousUserId) || '?';
-                    const displayName = getDisplayNameFromGuild(guild, previousUserId);
+                    const displayName = getUserIdentityLabelFromGuild(guild, previousUserId);
                     recentlyLeftUsers.set(previousUserId, {
                         number,
                         displayName,
@@ -437,8 +442,8 @@ function checkVoiceChannel() {
                     const userDetails = currentUserDetails.get(currentUserId);
                     if (userDetails) {
                         sessionStats.joinEvents += 1;
-                        addTimelineEvent('join', `[${userDetails.number}] ${userDetails.displayName} joined`);
-                        deltaEvents.push({ type: 'join', number: userDetails.number, displayName: userDetails.displayName });
+                        addTimelineEvent('join', `[${userDetails.number}] ${userDetails.identityLabel} joined`);
+                        deltaEvents.push({ type: 'join', number: userDetails.number, displayName: userDetails.identityLabel });
                     }
                 }
             }
